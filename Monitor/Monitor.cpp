@@ -31,9 +31,10 @@ public:
     // Метод поставщика
     void provide(Value* temp_data) {
         for (int i = 0; i < 5; ++i) {
-            this_thread::sleep_for(chrono::seconds(1));
+            this_thread::sleep_for(chrono::seconds(1)); // типа имитация полезной нагрузки
 
-            unique_lock<mutex> lock(mtx);
+            unique_lock<mutex> lock(mtx, defer_lock);  // СОЗДАЛИ, НЕ БЛОКИРУЕМ
+            lock.lock();  // ЯВНАЯ блокировка когда нужно
 
             // Ожидаем, пока потребитель не обработает предыдущее событие
             // И проверяем, не остановлен ли монитор
@@ -44,6 +45,7 @@ public:
             // Если монитор остановлен - выходим
             if (isStopped) {
                 cout << "Monitor is stopped!" << endl;
+                lock.unlock();  // Явная разблокировка перед break
                 break;
             }
 
@@ -55,19 +57,24 @@ public:
             cout << "Provider: event sent! Value = " << shared_data->val << endl;
 
             // Уведомляем потребителя
-            cv.notify_one();
+            cv.notify_one();    
+
+            lock.unlock(); // тож явно разблокируем
         }
 
         // Завершаем работу - останавливаем монитор
-        unique_lock<mutex> lock(mtx);
+        unique_lock<mutex> lock(mtx, defer_lock);
+        lock.lock();
         isStopped = true;
         cv.notify_one();  // Будим потребителя, если он спит
+        lock.unlock();
     }
 
     // Метод потребителя
     void consume() {
         while (true) {
-            unique_lock<mutex> lock(mtx);
+            unique_lock<mutex> lock(mtx, defer_lock);
+            lock.lock();    
 
             // Ожидаем событие или остановку монитора
             while (!event_ready && !isStopped) {
@@ -77,6 +84,7 @@ public:
             // Проверяем условие завершения
             if (isStopped) {
                 cout << "Consumer: finished work" << endl;
+                lock.unlock(); // тут тоже надо разблокать, тк до нижнего можем не дойти
                 break;
             }
 
@@ -86,6 +94,8 @@ public:
 
             // Уведомляем поставщика
             cv.notify_one();
+
+            lock.unlock();
         }
     }
 };
